@@ -1,0 +1,1032 @@
+{
+  "name": "Bug Bounty Duplicate Detection System",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-2528, -144],
+      "id": "238b381a-db7e-430e-801e-d6fd68a922dd",
+      "name": "Schedule Trigger Every 5 Min"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "getAll",
+        "guildId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "={{ $env.DISCORD_GUILD_ID }}"
+        },
+        "channelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "={{ $env.DISCORD_CHANNEL_ID }}"
+        },
+        "limit": 10,
+        "options": {
+          "after": "={{ $env.LAST_PROCESSED_MESSAGE_ID || '' }}"
+        }
+      },
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [-2232, -144],
+      "id": "ffd39bbb-5910-4c8d-b0bd-ab1db38350be",
+      "name": "Get Recent Bug Reports",
+      "webhookId": "bcbdc80e-5d47-4ac4-b6fe-b62c7c09eb29",
+      "onError": "continueErrorOutput",
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "1ddfe718-f860-4011-bf21-9b77d14d5a5c",
+              "leftValue": "={{ $json.content }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            },
+            {
+              "id": "2aafe829-b971-4022-aa33-8c77e25d4a6d",
+              "leftValue": "={{ $json.content.toLowerCase() }}",
+              "rightValue": "bug|issue|vulnerability|error|problem|broken",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [-2008, -144],
+      "id": "5e48c020-0d39-4dc5-a3ca-16e947a0e230",
+      "name": "Filter Valid Bug Reports"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Sanitize and structure the bug report\nconst message = $input.first();\nconst content = message.json.content || '';\n\n// Remove mentions, sanitize URLs, limit length\nconst sanitized = content\n  .replace(/<@[!&]?\\d+>/g, '[USER]')\n  .replace(/https?:\\/\\/[^\\s]+/g, '[URL]')\n  .slice(0, 2000);\n\n// Extract basic structure\nconst bugReport = {\n  messageId: message.json.id,\n  authorId: message.json.author?.id || 'unknown',\n  authorName: message.json.author?.username || 'unknown',\n  channelId: message.json.channel_id,\n  timestamp: message.json.timestamp || new Date().toISOString(),\n  rawContent: sanitized,\n  searchableText: sanitized.toLowerCase().trim(),\n  threadId: message.json.id\n};\n\nreturn { json: bugReport };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1784, -144],
+      "id": "6bd574aa-1df8-42ae-96bf-06ad92ba7b30",
+      "name": "Sanitize and Extract Bug Details",
+      "onError": "continueErrorOutput",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.rawContent }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are a bug triage specialist for n8n automation platform. Analyze bug reports and extract structured information.\n\nYour task:\n1. Extract the bug title (concise, descriptive)\n2. Identify the bug description\n3. List steps to reproduce (if provided)\n4. Determine expected vs actual behavior\n5. Classify severity: critical, high, medium, or low\n6. Identify affected components/features\n7. Generate a search-optimized summary for duplicate detection\n\nRespond ONLY with valid JSON in this exact format:\n{\n  \"title\": \"Brief bug title\",\n  \"description\": \"Detailed description\",\n  \"stepsToReproduce\": [\"step1\", \"step2\"],\n  \"expectedBehavior\": \"What should happen\",\n  \"actualBehavior\": \"What actually happens\",\n  \"severity\": \"critical|high|medium|low\",\n  \"affectedComponents\": [\"component1\", \"component2\"],\n  \"searchSummary\": \"Optimized text for semantic search\"\n}\n\nIf information is missing, use \"not specified\" for strings or empty arrays for lists."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [-1400, -352],
+      "id": "b6ed9d71-7610-42f3-a884-9a8d1c6fcdaa",
+      "name": "AI Agent - Analyze Bug Report",
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [-1560, -128],
+      "id": "dc56c078-25f4-4790-a3e9-477ea21859e4",
+      "name": "OpenRouter Chat Model"
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [-1432, -128],
+      "id": "6d1ffbcc-d262-466c-9df2-3e2a439b826f",
+      "name": "Window Buffer Memory"
+    },
+    {
+      "parameters": {
+        "name": "structuredOutputParser",
+        "schemaType": "fromJson",
+        "jsonSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"title\": {\"type\": \"string\"},\n    \"description\": {\"type\": \"string\"},\n    \"stepsToReproduce\": {\"type\": \"array\", \"items\": {\"type\": \"string\"}},\n    \"expectedBehavior\": {\"type\": \"string\"},\n    \"actualBehavior\": {\"type\": \"string\"},\n    \"severity\": {\"type\": \"string\", \"enum\": [\"critical\", \"high\", \"medium\", \"low\"]},\n    \"affectedComponents\": {\"type\": \"array\", \"items\": {\"type\": \"string\"}},\n    \"searchSummary\": {\"type\": \"string\"}\n  },\n  \"required\": [\"title\", \"description\", \"severity\", \"searchSummary\"]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [-1016, -128],
+      "id": "f6c7fd55-0858-4a9a-82b1-dd875f71e58d",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "Search the existing bug reports database to find similar issues. Use the search summary from the analyzed bug to query.",
+        "memoryKey": {
+          "__rl": true,
+          "mode": "list",
+          "value": "bug_reports_vector_store"
+        },
+        "topK": 5
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreInMemory",
+      "typeVersion": 1.3,
+      "position": [-1304, -128],
+      "id": "e9464e92-b8d1-4c9e-bfb6-b7379b6f5841",
+      "name": "Vector Store Search Tool"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsHuggingFaceInference",
+      "typeVersion": 1,
+      "position": [-1224, 80],
+      "id": "79148b29-fec6-49f5-a987-91ce82e55645",
+      "name": "Embeddings HuggingFace"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge AI analysis with original bug data\nconst originalBug = $('Sanitize and Extract Bug Details').first().json;\nconst aiAnalysis = $input.first().json;\n\n// Combine all data\nconst enrichedBug = {\n  ...originalBug,\n  analysis: aiAnalysis,\n  searchableText: aiAnalysis.searchSummary || originalBug.searchableText\n};\n\nreturn { json: enrichedBug };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-808, -144],
+      "id": "ef6106d1-e89c-407e-8599-08ccf77ee718",
+      "name": "Merge AI Analysis with Bug Data",
+      "onError": "continueErrorOutput",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "retrieve",
+        "prompt": "={{ $json.searchableText }}",
+        "memoryKey": {
+          "__rl": true,
+          "mode": "list",
+          "value": "bug_reports_vector_store"
+        },
+        "topK": 3
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreInMemory",
+      "typeVersion": 1.3,
+      "position": [-600, -144],
+      "id": "bbd24801-3eff-4818-889c-ff1a6b2f8140",
+      "name": "Search Existing Bug Reports"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Calculate similarity and determine if duplicate\nconst currentBug = $('Merge AI Analysis with Bug Data').first().json;\nconst searchResults = $input.all();\n\nconst SIMILARITY_THRESHOLD = 0.82;\n\nif (searchResults.length === 0) {\n  return {\n    json: {\n      isDuplicate: false,\n      currentBug: currentBug,\n      matchedBugs: []\n    }\n  };\n}\n\nconst matches = searchResults\n  .filter(result => {\n    const score = result.json.metadata?.score || 0;\n    return score >= SIMILARITY_THRESHOLD;\n  })\n  .sort((a, b) => (b.json.metadata?.score || 0) - (a.json.metadata?.score || 0));\n\nif (matches.length > 0) {\n  const bestMatch = matches[0];\n  return {\n    json: {\n      isDuplicate: true,\n      currentBug: currentBug,\n      matchedBug: {\n        threadId: bestMatch.json.metadata?.threadId,\n        similarity: bestMatch.json.metadata?.score,\n        content: bestMatch.json.pageContent\n      },\n      allMatches: matches.map(m => ({\n        threadId: m.json.metadata?.threadId,\n        similarity: m.json.metadata?.score\n      }))\n    }\n  };\n} else {\n  return {\n    json: {\n      isDuplicate: false,\n      currentBug: currentBug,\n      matchedBugs: searchResults.map(r => ({\n        threadId: r.json.metadata?.threadId,\n        similarity: r.json.metadata?.score\n      }))\n    }\n  };\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-392, -144],
+      "id": "d1603f40-00af-4d06-94c9-fd9a8a9ffec7",
+      "name": "Check Duplicate Threshold",
+      "onError": "continueErrorOutput",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.isDuplicate }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Duplicate Found"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.isDuplicate }}",
+                    "rightValue": false,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "false"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "New Bug"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [-184, -144],
+      "id": "8d382986-d6a1-43bc-8c54-be313810ef44",
+      "name": "Route by Duplicate Status"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://discord.com/api/v10/channels/{{ $json.currentBug.channelId }}/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "discordApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "=❌ **Duplicate Bug Report Detected**\\n\\n**Issue:** {{ $json.currentBug.analysis.title }}\\n**Severity:** {{ $json.currentBug.analysis.severity.toUpperCase() }}\\n\\nThis issue has already been reported and is being tracked.\\n\\n**Original Report:** <https://discord.com/channels/{{ $env.DISCORD_GUILD_ID }}/{{ $json.currentBug.channelId }}/{{ $json.matchedBug.threadId }}>\\n**Similarity:** {{ Math.round($json.matchedBug.similarity * 100) }}%\\n\\nThis thread will be closed. Please follow the original thread for updates."
+            },
+            {
+              "name": "message_reference",
+              "value": "={{ { \"message_id\": $json.currentBug.messageId } }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [40, -292],
+      "id": "ae9eba90-1a5a-42ba-a528-769694d6559d",
+      "name": "Reply with Duplicate Reference",
+      "onError": "continueErrorOutput",
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://discord.com/api/v10/channels/{{ $json.currentBug.channelId }}/threads",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "discordApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "={{ $json.currentBug.analysis.title.slice(0, 100) }}"
+            },
+            {
+              "name": "message_id",
+              "value": "={{ $json.currentBug.messageId }}"
+            },
+            {
+              "name": "auto_archive_duration",
+              "value": "10080"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [40, 4],
+      "id": "6027f10d-3209-4e34-8f97-042c72270d41",
+      "name": "Create New Bug Thread",
+      "onError": "continueErrorOutput",
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "={{ $env.GOOGLE_SHEET_NAME || 'Bug Reports' }}"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $json.currentBug.timestamp }}",
+            "Message ID": "={{ $json.currentBug.messageId }}",
+            "Thread ID": "={{ $json.currentBug.threadId }}",
+            "Author": "={{ $json.currentBug.authorName }}",
+            "Author ID": "={{ $json.currentBug.authorId }}",
+            "Title": "={{ $json.currentBug.analysis.title }}",
+            "Description": "={{ $json.currentBug.analysis.description }}",
+            "Severity": "={{ $json.currentBug.analysis.severity }}",
+            "Affected Components": "={{ $json.currentBug.analysis.affectedComponents.join(', ') }}",
+            "Steps to Reproduce": "={{ $json.currentBug.analysis.stepsToReproduce.join(' | ') }}",
+            "Expected Behavior": "={{ $json.currentBug.analysis.expectedBehavior }}",
+            "Actual Behavior": "={{ $json.currentBug.analysis.actualBehavior }}",
+            "Status": "=New",
+            "Discord Link": "=https://discord.com/channels/{{ $env.DISCORD_GUILD_ID }}/{{ $json.currentBug.channelId }}/{{ $json.currentBug.messageId }}"
+          },
+          "matchingColumns": ["Message ID"],
+          "schema": [
+            {"id": "Timestamp", "displayName": "Timestamp", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "Message ID", "displayName": "Message ID", "required": false, "defaultMatch": true, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "Thread ID", "displayName": "Thread ID", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "Author", "displayName": "Author", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "Author ID", "displayName": "Author ID", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "Title", "displayName": "Title", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "Description", "displayName": "Description", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "Severity", "displayName": "Severity", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "Affected Components", "displayName": "Affected Components", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "Steps to Reproduce", "displayName": "Steps to Reproduce", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "Expected Behavior", "displayName": "Expected Behavior", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "Actual Behavior", "displayName": "Actual Behavior", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "Status", "displayName": "Status", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "Discord Link", "displayName": "Discord Link", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true}
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [264, 4],
+      "id": "fc6cea56-02af-4cb0-a1b0-2ee46b193b6a",
+      "name": "Store Bug in Google Sheets",
+      "onError": "continueErrorOutput",
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "memoryKey": {
+          "__rl": true,
+          "mode": "list",
+          "value": "bug_reports_vector_store"
+        },
+        "options": {
+          "metadata": {
+            "metadataValues": [
+              {
+                "name": "threadId",
+                "value": "={{ $json.currentBug.threadId }}"
+              },
+              {
+                "name": "timestamp",
+                "value": "={{ $json.currentBug.timestamp }}"
+              },
+              {
+                "name": "authorId",
+                "value": "={{ $json.currentBug.authorId }}"
+              },
+              {
+                "name": "severity",
+                "value": "={{ $json.currentBug.analysis.severity }}"
+              },
+              {
+                "name": "title",
+                "value": "={{ $json.currentBug.analysis.title }}"
+              }
+            ]
+          }
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreInMemory",
+      "typeVersion": 1.3,
+      "position": [488, 4],
+      "id": "698ee0cc-cabb-4400-b1a2-0840aed0c7e9",
+      "name": "Store Bug in Vector Store"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1.1,
+      "position": [560, 228],
+      "id": "4cb08846-95ab-4fa2-8cd9-fff430ef9121",
+      "name": "Document Loader"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://discord.com/api/v10/channels/{{ $json.currentBug.channelId }}/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "discordApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "=✅ **New Bug Report Registered**\\n\\n**Title:** {{ $json.currentBug.analysis.title }}\\n**Severity:** {{ $json.currentBug.analysis.severity.toUpperCase() }}\\n**Affected Components:** {{ $json.currentBug.analysis.affectedComponents.join(', ') || 'Not specified' }}\\n\\nThank you for reporting this issue! A new thread has been created to track this bug.\\n\\n**Thread ID:** {{ $json.currentBug.threadId }}\\n**Status:** Under Review\\n\\nOur team will investigate and provide updates in the thread."
+            },
+            {
+              "name": "message_reference",
+              "value": "={{ { \"message_id\": $json.currentBug.messageId } }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [712, 4],
+      "id":"f79576d6-7795-46ae-9bad-cbc1f1be13ba",
+      "name": "Reply with Confirmation",
+      "onError": "continueErrorOutput",
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "amount": 2,
+        "unit": "seconds"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [264, -292],
+      "id": "ea848fc0-31b0-4017-910c-9f2a4f398085",
+      "name": "Rate Limit Delay",
+      "webhookId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://discord.com/api/v10/channels/{{ $json.currentBug.channelId }}/messages/{{ $json.currentBug.messageId }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "discordApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "flags",
+              "value": "4"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [488, -292],
+      "id": "d9001691-101c-4978-b0a7-5cc869dba910",
+      "name": "Close Duplicate Thread",
+      "onError": "continueErrorOutput",
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "={{ $env.GOOGLE_SHEET_NAME || 'Bug Reports' }}"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $json.currentBug.timestamp }}",
+            "Message ID": "={{ $json.currentBug.messageId }}",
+            "Status": "=Duplicate",
+            "Duplicate Of": "={{ $json.matchedBug.threadId }}",
+            "Similarity": "={{ Math.round($json.matchedBug.similarity * 100) }}%"
+          },
+          "matchingColumns": ["Message ID"],
+          "schema": [
+            {"id": "Timestamp", "displayName": "Timestamp", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "Message ID", "displayName": "Message ID", "required": false, "defaultMatch": true, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "Status", "displayName": "Status", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "Duplicate Of", "displayName": "Duplicate Of", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true},
+            {"id": "Similarity", "displayName": "Similarity", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true}
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [712, -292],
+      "id": "log-duplicate-sheet-001",
+      "name": "Log Duplicate in Google Sheets",
+      "onError": "continueErrorOutput",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.1,
+      "position": [936, -144],
+      "id": "error-check-node-001",
+      "name": "Check for Errors"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DISCORD_ERROR_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "=🚨 **Bug Bounty Workflow Error**\\n\\n**Time:** {{ $now.toISO() }}\\n**Node:** {{ $('Get Recent Bug Reports').item?.json?.error ? 'Discord API' : 'Unknown' }}\\n**Error Type:** {{ $json.error?.message || 'Processing failed' }}\\n**Bug Message ID:** {{ $('Sanitize and Extract Bug Details').first()?.json?.messageId || 'N/A' }}\\n\\n**Action Required:** Check n8n workflow execution logs\\n\\n**Quick Link:** {{ $execution.url }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1160, -292],
+      "id": "send-error-alert-001",
+      "name": "Send Error Alert to Discord",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Error Logs"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $now.toISO() }}",
+            "Execution ID": "={{ $execution.id }}",
+            "Error Message": "={{ $json.error?.message || 'Unknown error' }}",
+            "Failed Node": "={{ $json.node?.name || 'Unknown' }}",
+            "Bug Message ID": "={{ $('Sanitize and Extract Bug Details').first()?.json?.messageId || 'N/A' }}",
+            "Stack Trace": "={{ $json.error?.stack?.slice(0, 500) || 'N/A' }}"
+          },
+          "schema": [
+            {"id": "Timestamp", "displayName": "Timestamp", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": false},
+            {"id": "Execution ID", "displayName": "Execution ID", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": false},
+            {"id": "Error Message", "displayName": "Error Message", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": false},
+            {"id": "Failed Node", "displayName": "Failed Node", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": false},
+            {"id": "Bug Message ID", "displayName": "Bug Message ID", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": false},
+            {"id": "Stack Trace", "displayName": "Stack Trace", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": false}
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1160, -144],
+      "id": "log-error-sheet-001",
+      "name": "Log Error in Google Sheets",
+      "continueOnFail": true
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger Every 5 Min": {
+      "main": [
+        [
+          {
+            "node": "Get Recent Bug Reports",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Recent Bug Reports": {
+      "main": [
+        [
+          {
+            "node": "Filter Valid Bug Reports",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Valid Bug Reports": {
+      "main": [
+        [
+          {
+            "node": "Sanitize and Extract Bug Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sanitize and Extract Bug Details": {
+      "main": [
+        [
+          {
+            "node": "AI Agent - Analyze Bug Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent - Analyze Bug Report": {
+      "main": [
+        [
+          {
+            "node": "Merge AI Analysis with Bug Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Analyze Bug Report",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent - Analyze Bug Report",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent - Analyze Bug Report",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vector Store Search Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Analyze Bug Report",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings HuggingFace": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Vector Store Search Tool",
+            "type": "ai_embedding",
+            "index": 0
+          },
+          {
+            "node": "Store Bug in Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          },
+          {
+            "node": "Search Existing Bug Reports",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge AI Analysis with Bug Data": {
+      "main": [
+        [
+          {
+            "node": "Search Existing Bug Reports",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Existing Bug Reports": {
+      "main": [
+        [
+          {
+            "node": "Check Duplicate Threshold",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Duplicate Threshold": {
+      "main": [
+        [
+          {
+            "node": "Route by Duplicate Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Duplicate Status": {
+      "main": [
+        [
+          {
+            "node": "Reply with Duplicate Reference",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create New Bug Thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply with Duplicate Reference": {
+      "main": [
+        [
+          {
+            "node": "Rate Limit Delay",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rate Limit Delay": {
+      "main": [
+        [
+          {
+            "node": "Close Duplicate Thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Close Duplicate Thread": {
+      "main": [
+        [
+          {
+            "node": "Log Duplicate in Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Duplicate in Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Check for Errors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create New Bug Thread": {
+      "main": [
+        [
+          {
+            "node": "Store Bug in Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Bug in Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Store Bug in Vector Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Bug in Vector Store": {
+      "main": [
+        [
+          {
+            "node": "Reply with Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Document Loader": {
+      "ai_document": [
+        [
+          {
+            "node": "Store Bug in Vector Store",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply with Confirmation": {
+      "main": [
+        [
+          {
+            "node": "Check for Errors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check for Errors": {
+      "main": [
+        [
+          {
+            "node": "Send Error Alert to Discord",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Error in Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "={{ $env.ERROR_WORKFLOW_ID }}"
+  },
+  "versionId": "enhanced-with-sheets-and-errors",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "6ff2409d8b5c603dae073ad5be38dcf1706844bc85b2b2cd593005bc38acfbca"
+  },
+  "id": "1ovnog9lOkyNsykp",
+  "tags": [
+    {
+      "createdAt": "2025-10-02T21:49:25.327Z",
+      "updatedAt": "2025-10-02T21:49:25.327Z",
+      "id": "6hABym2XsUgW8d5c",
+      "name": "bug-bounty"
+    },
+    {
+      "createdAt": "2025-10-02T21:49:25.357Z",
+      "updatedAt": "2025-10-02T21:49:25.357Z",
+      "id": "8WSq17N86L8Iju7O",
+      "name": "discord-automation"
+    },
+    {
+      "createdAt": "2025-10-02T22:01:27.849Z",
+      "updatedAt": "2025-10-02T22:01:27.849Z",
+      "id": "Ae1T0OwI3XwVuLnq",
+      "name": "ai-powered"
+    }
+  ]
+}
