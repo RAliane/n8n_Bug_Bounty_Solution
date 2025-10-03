@@ -1,7 +1,3 @@
-Here’s a comprehensive **README.md** for your **Bug Bounty Duplicate Detection System** using n8n and RAG. This document is designed to be clear, actionable, and suitable for both technical and non-technical stakeholders.
-
----
-
 ```markdown
 # Bug Bounty Duplicate Detection System
 
