@@ -1,4 +1,3 @@
-```markdown
 # Bug Bounty Duplicate Detection System
 
 **Automated AI-Powered Bug Triage & Duplicate Detection for Discord**
