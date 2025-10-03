@@ -170,7 +170,7 @@ This n8n workflow automates the intake, analysis, and deduplication of bug repor
 ---
 
 ## 📄 License
-This project is licensed under the [APACHE 2.0](LICENSE).
+This project is licensed under the [APACHE 2.0](LICENSE.md).
 ```
 
 ---
